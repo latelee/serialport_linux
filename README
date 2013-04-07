@@ -2,3 +2,17 @@ serialport_linux
 ================
 
 An implement of Serialport under linux, writing in C language.
+
+build & run
+================
+
+$ make
+$ ./a.out
+
+current status
+================
+
+serial device: "/dev/ttyUSB0", 
+port attribute: 115200, 8, 'N', 1
+
+One thread write, One thread read.

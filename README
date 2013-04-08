@@ -13,6 +13,11 @@ current status
 ================
 
 serial device: "/dev/ttyUSB0", 
-port attribute: 115200, 8, 'N', 1
+port attribute: 9600, 8, 'N', 1
 
-One thread write, One thread read.
+One thread to write, one thread to read, one thread to exit.
+
+Good luck!
+
+Late Lee
+latelee@163.com

@@ -16,8 +16,8 @@
  * @date   Mon Jan 10 2011
  * 
  * @brief  A simple test of serial port writing data to the port.
- * @test   To compile the program, type <tt> gcc main.c serialport.c -lthread
- *         </tt>,then it will generate the executable binary @p a.out.
+ * @test   To compile the program, type <tt> make </tt>,
+ *         then it will generate the executable binary @p a.out.
  *         To run it, type <tt> ./a.out</tt>.Make sure you have the permission
  *         to open the serial port.@n
  *         You can start a ternimal and type @p minicom(also make sure you can
@@ -25,10 +25,12 @@
  *         minicom using the same port if you connect pin 2 & pin 3 of the port
  *         (the male connector, see the picture below)(but I don't know the
  *         reason, isn't it blocked?).@n
- *         If you want to stop the program, just use 'Ctrl+c'. @n
+ *         If you want to stop the program, just use 'Ctrl+c' or 'q'. @n
+ *         In default, the program open the device '/dev/ttyUSB0'.@n
  *         Here are snapshots of the program:
  *         @image html serial-write.jpg "Writing to the port..."
  *         @image html serial-read-minicom.jpg "Reading the data in minicom..."
+ *         @image html send_revc_self.jpg "One thread send, one thread read."
  *         @n And here comes the serial port connector:
  *         @image html com-male.jpg "A 9-pin male D-Sub connector(*)"
  *         @image html com-female.jpg "A 9-pin female D-Sub connector"
@@ -42,12 +44,17 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
-#include "debug-msg.h"
+//#include "debug-msg.h"
 #include "serialport.h"
+#include "error-log.h"
 
 pthread_t write_tid; /**< write thread */
 pthread_t read_tid;  /**< read thread */
-char *buf = "Are you going to die? "; /**< The data we write to the port. */
+pthread_t exit_tid;  /**< exit thread */
+
+/** The data we write to the port. */
+//char *buf = "Are you going to die?\r\n";
+char *buf = "Are you going to die? To be or not to be, that is the question.\r\n";
 /** data we receive */
 char tmp[512];
 
@@ -63,21 +70,22 @@ void *write_port_thread(void *argc)
 {
     int ret;
     int fd;
-    int i = 3;
-    
+    static int cnt = 1;
+    char send_buf[512] = {0};
+
     fd = (int)argc;
 
-    //while (i--)
     while (1)
     {
-    debug_msg("writing... ");
-    ret = write(fd, buf, strlen(buf));
-    
-    if (ret < 0)
-        pthread_exit(NULL);
-    write(fd, "\r\n", 2);
-    debug_msg("write: %d\n", ret);
-    sleep(1);
+        sprintf(send_buf, "%d %s", cnt, buf);
+        debug_msg("writing time %d... ", cnt++);
+
+        ret = write(fd, send_buf, strlen(send_buf));
+
+        if (ret < 0)
+            pthread_exit(NULL);
+        debug_msg("write num---: %d\n", ret);
+        sleep(2);
     }
     pthread_exit(NULL);
 }
@@ -87,29 +95,24 @@ void *write_port_thread(void *argc)
  * 
  * @param argc : Here means the port(specified by the fd).
  * 
- * @note
- * This function has not tested yet.
  */
 void *read_port_thread(void *argc)
 {
     int num;
-    int ret;
     int fd;
     
     fd = (int)argc;
     while (1)
     {
-        //debug_msg("reading...\n");
         while ((num = read(fd, tmp, 512)) > 0)
         {
-            debug_msg("read: %d\n", num);
+            debug_msg("read num: %d\n", num);
             tmp[num+1] = '\0';
             printf("%s\n", tmp);
         }
         sleep(1);
-        //if (ret < 0)
-        //    pthread_exit(NULL);
-        //debug_msg("read: %d\n", ret);
+        if (num < 0)
+            pthread_exit(NULL);
 	}
     pthread_exit(NULL);
 }
@@ -127,17 +130,41 @@ void sig_handle(int sig_num)
     exit(0);
 }
 
+/** 
+ * exit_thread - Thread that exit the program when 'q' pressed
+ * 
+ * @param argc : Here means the port(specified by the fd).
+ * 
+ */
+void* exit_thread(void* argc)
+{
+    while (1)
+    {
+        int c = getchar();
+        if ('q' == c)
+        {
+            printf("You exit, not myself.\n");
+            exit(0);
+        }
+        sleep(1);
+    }
+    pthread_exit(NULL);
+}
 
+/** 
+ * main - main function
+ * 
+ */
 int main(void)
 {
     int fd;
     int ret;
     
     //signal(SIGINT, sig_handle);
-    fd = open_port(1);          /* open the port(com1) */
+    fd = open_port("/dev/ttyUSB0");          /* open the port */
     if (fd < 0)
         exit(0);
-    ret = setup_port(fd, 115200, 8, 'N', 1);
+    ret = setup_port(fd, 9600, 8, 'N', 1);  /* setup the port */
     if (ret<0)
         exit(0);
 
@@ -145,14 +172,18 @@ int main(void)
     if (ret < 0)
         unix_error_exit("Create write thread error.");
 
-    #if 0
     ret = pthread_create(&read_tid, NULL, read_port_thread, (void*)fd);
     if (ret < 0)
         unix_error_exit("Create read thread error.");
-    #endif
+
+    ret = pthread_create(&exit_tid, NULL, exit_thread, NULL);
+    if (ret < 0)
+        unix_error_exit("Create exit thread error.");
 
     pthread_join(write_tid, NULL);
-    //pthread_join(read_tid, NULL);
+    pthread_join(read_tid, NULL);
+    pthread_join(exit_tid, NULL);
+
     close_port(fd);
 
     return 0;

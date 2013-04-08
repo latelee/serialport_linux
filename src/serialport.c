@@ -29,16 +29,13 @@
 #include <fcntl.h>
 #include <termios.h>
 
-#include "debug-msg.h"
-
-/** if you have a usb-serial converter, specify it to 1 */
-#define USB_SERIAL 0
-
+//#include "debug-msg.h"
+#include "error-log.h"
 
 /** 
  * open_port - Open a serial port
  * 
- * @param port : The port number, eg, open_port(1) will open port 1.
+ * @param device [in] : The serial port device name, eg, /dev/ttyS0
  * 
  * @return Return fd if success, otherwise will return -1 with some msg.
  *
@@ -57,37 +54,29 @@ Digital UNIX  /dev/tty01   /dev/tty02
 (Windows       COM1        COM2)
 \endverbatim
 
-We open the port specified by port number, for instance, if you want to open
-port 1, you just call the function like this: open_port(1).
+We open the port specified by device name, for instance, if you want to open
+port 1, you just call the function like this: open_port("/dev/ttyS0").
 
  *        
  */
-int open_port(int port)
+
+int open_port(const char* device)
 {
     int fd = -1; /* File descriptor for the port, we return it. */
     int ret;
-    char device[13] = {0}; /* ??? sizeof("/dev/ttyUSB0")=12 */
-
-    if (port < 1 || port > 4)
-        error_ret("Sorry, the port number must be 1~4.");
-    if (USB_SERIAL)
-        sprintf(device, "/dev/ttyUSB%d", port-1);
-    else
-        sprintf(device, "/dev/ttyS%d", port-1);
-    //printf("%s %d\n", device, sizeof(device));
 
     fd = open(device, O_RDWR | O_NOCTTY | O_NDELAY);
     if (fd == -1)
-        unix_error_ret("Unable to open the port");
+        error_sys("Unable to open the port");
 
     /* block */
     ret = fcntl(fd, F_SETFL, 0);
     if (ret < 0)
-        unix_error_ret("fcntl");
+        error_sys("fcntl");
     ret = isatty(STDIN_FILENO);
     if (ret == 0)
-        error_ret("Standard input is not a terminal device.");
-    debug_msg("Open the port success!\n");
+        error_sys("Standard input is not a terminal device.");
+    debug_msg("Open the port %s success!\n", device);
     
     return fd;
 }
@@ -102,7 +91,7 @@ int open_port(int port)
 int close_port(int fd)
 {
     if(close(fd) < 0)
-        unix_error_ret("Unable to close the port.");
+        error_sys("Unable to close the port.");
     debug_msg("Close the port success!\n");
 
     return 0;
@@ -239,7 +228,7 @@ int setup_port(int fd, int speed, int data_bits, int parity, int stop_bits)
 
     ret = tcgetattr(fd, &opt);		/* get the port attr */
     if (ret < 0)
-        unix_error_ret("Unable to get the attribute");
+        error_sys("Unable to get the attribute");
 
     opt.c_cflag |= (CLOCAL | CREAD); /* enable the receiver, set local mode */
     opt.c_cflag &= ~CSIZE;			/* mask the character size bits*/
@@ -254,7 +243,7 @@ int setup_port(int fd, int speed, int data_bits, int parity, int stop_bits)
             cfsetospeed(&opt, speed_arr[i]);
         }
         if (i == len)
-            error_ret("Unsupported baud rate.");
+            error_msg("Unsupported baud rate.");
     }
     
     /* data bits */
@@ -267,7 +256,7 @@ int setup_port(int fd, int speed, int data_bits, int parity, int stop_bits)
         opt.c_cflag |= CS7;
         break;
     default:
-        error_ret("Unsupported data bits.");
+        error_msg("Unsupported data bits.");
     }
 
     /* parity bits */
@@ -275,22 +264,22 @@ int setup_port(int fd, int speed, int data_bits, int parity, int stop_bits)
     {
     case 'N':
     case 'n':
+        opt.c_iflag &= ~INPCK;
         opt.c_cflag &= ~PARENB;
-        opt.c_cflag &= ~INPCK; /* ?? */
         break;
     case 'O':
     case 'o':
-        opt.c_cflag|=(INPCK|ISTRIP); /*enable parity check, strip parity bits*/
+        opt.c_iflag |= (INPCK|ISTRIP); /*enable parity check, strip parity bits*/
         opt.c_cflag |= (PARODD | PARENB);
         break;
     case 'E':
     case 'e':
-        opt.c_cflag|=(INPCK|ISTRIP); /*enable parity check, strip parity bits*/
+        opt.c_iflag |= (INPCK|ISTRIP); /*enable parity check, strip parity bits*/
         opt.c_cflag |= PARENB;
         opt.c_cflag &= ~PARODD;
         break;
     default:
-        error_ret("Unsupported parity bits.");
+        error_msg("Unsupported parity bits.");
     }
 
     /* stop bits */
@@ -303,7 +292,7 @@ int setup_port(int fd, int speed, int data_bits, int parity, int stop_bits)
         opt.c_cflag |= CSTOPB;
         break;
     default:
-        error_ret("Unsupported stop bits.");
+        error_msg("Unsupported stop bits.");
     }
 
     /* raw input */
@@ -311,13 +300,24 @@ int setup_port(int fd, int speed, int data_bits, int parity, int stop_bits)
     /* raw ouput */
     opt.c_oflag &= ~OPOST;
 
+    //设置流控
+    //RTS/CTS (硬件) 流控制
+    opt.c_cflag &= ~CRTSCTS; //无流控
+    //输入的 XON/XOFF 流控制
+    opt.c_iflag &= ~IXOFF;//不启用
+    //输出的 XON/XOFF 流控制
+    opt.c_iflag &= ~IXON ;//不启用
+
+    // 防止0x0D变0x0A
+    opt.c_iflag &= ~(ICRNL|IGNCR);
+
     tcflush(fd, TCIFLUSH);
-    opt.c_cc[VTIME] = 0; /* no time out */
+    opt.c_cc[VTIME] = 1; /* time out */
     opt.c_cc[VMIN] = 0; /* minimum number of characters to read */
 
     ret = tcsetattr(fd, TCSANOW, &opt); /* update it now */
     if (ret < 0)
-        unix_error_ret("Unable to setup the port.");
+        error_sys("Unable to setup the port.");
     debug_msg("Setup the port OK!\n");
 
     return 0; /* everything is OK! */

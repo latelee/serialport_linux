@@ -111,7 +111,7 @@
  * @brief A macro that prints the debug msg, as the same with @a printf.
  *
  */
-#if DEBUG > 0
+#ifdef DEBUG
 #define debug_msg(fmt, ...)	\
     fprintf(stdout, fmt, ##__VA_ARGS__)
 #else
@@ -127,7 +127,7 @@
  * @brief A macro that traces the @p file, @p function and @p line.
  *
  */
-#if TRACE > 0
+#ifdef TRACE
 #define debug_trace(trace)	\
     fprintf(stdout, "%s File:%s Line:%d Func:%s.\n",   \
             trace, __FILE__, __LINE__, __func__)

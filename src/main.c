@@ -155,16 +155,27 @@ void* exit_thread(void* argc)
  * main - main function
  * 
  */
-int main(void)
+int main(int argc, char* argv[])
 {
     int fd;
     int ret;
+	char dev_name[32] = {0};
     
+    strcpy(dev_name, "/dev/ttyS0");
+    if (argc == 2)
+    {
+        sprintf(dev_name,"%s",argv[1]);
+    }
+
     //signal(SIGINT, sig_handle);
-    fd = open_port("/dev/ttyUSB0");          /* open the port */
+    fd = open_port(dev_name);          /* open the port */
     if (fd < 0)
-        exit(0);
-    ret = setup_port(fd, 9600, 8, 'N', 1);  /* setup the port */
+	{
+		printf("open %s err\n",dev_name);
+		exit(0);
+	}
+        
+    ret = setup_port(fd, 115200, 8, 'N', 1);  /* setup the port */
     if (ret<0)
         exit(0);
 
